@@ -1,0 +1,23 @@
+{
+  "feature_name": "dependency-security-2026-10",
+  "created_at": "2026-10-22T05:30:00Z",
+  "updated_at": "2026-10-22T05:30:00Z",
+  "language": "ja",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "note": "2026-10-22に本人が更新の範囲として『公開リポ7本』を選んだ依頼を、小さな修正の最小仕様として記録したもの。本人が読んで承認するまで approved は false のままにする。"
+}
