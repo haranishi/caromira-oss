@@ -256,7 +256,9 @@ export function reverseGoal(profile: Profile, targetBodyFatPct: number): GoalPla
   const lm0 = profile.weightKg - fm0;
   const C = forbesConstant(fm0, lm0);
   // W = FM + LM, かつ FM/W = target/100, LM = 10.4·ln(FM)+C を満たす W を解く
-  const targetWeight = solveWeightForBodyFat(targetBodyFatPct, C);
+  const targetWeight = targetBodyFatPct === profile.bodyFatPct
+    ? profile.weightKg
+    : solveWeightForBodyFat(targetBodyFatPct, C);
   const changeKg = targetWeight - profile.weightKg;
 
   // 安全ペース（体重比/週）
