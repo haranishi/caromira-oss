@@ -58,3 +58,12 @@ Node.js環境とWebGL対応ブラウザが必要です。
 npm install
 npm run dev
 ```
+
+本番用ファイルを手元で確認する場合は、ビルド後に `out/` を静的ファイルとして配信します。Python 3 がある場合の例です。
+
+```bash
+npm run build
+python3 -m http.server 3000 --bind 127.0.0.1 --directory out
+```
+
+ブラウザで `http://127.0.0.1:3000/` を開きます。
