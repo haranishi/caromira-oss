@@ -67,20 +67,26 @@ function clamp(v: number, a: number, b: number) {
 type Loaded = { future: THREE.Mesh; now: THREE.Mesh };
 
 /** GLBを読んで、同じジオメトリから「未来（実体）」と「いま（殻）」の2体を作る。 */
-function useBody(sex: Sex, color: string): Loaded | null {
+function useBody(sex: Sex, color: string, onError: () => void): Loaded | null {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
     let alive = true;
     /* drei の useGLTF はサスペンスする＝読み込み中に描画ループが止まるので、
        自前で読んで、出来上がってから差し込む。 */
+    const reportError = () => {
+      if (alive) onError();
+    };
     new GLTFLoader().load(MODEL[sex], (gltf) => {
       if (!alive) return;
       let src: THREE.Mesh | null = null;
       gltf.scene.traverse((o) => {
         if (!src && (o as THREE.Mesh).isMesh) src = o as THREE.Mesh;
       });
-      if (!src) return;
+      if (!src) {
+        reportError();
+        return;
+      }
       const geometry = (src as THREE.Mesh).geometry;
 
       const future = new THREE.Mesh(
@@ -116,11 +122,11 @@ function useBody(sex: Sex, color: string): Loaded | null {
         m.morphTargetInfluences[0] = 0;
       }
       setLoaded({ future, now });
-    });
+    }, undefined, reportError);
     return () => {
       alive = false;
     };
-  }, [sex]);
+  }, [sex, onError]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -165,6 +171,7 @@ function Body({
   sex,
   color,
   onReady,
+  onError,
 }: {
   fatness: number;
   nowFatness: number;
@@ -172,8 +179,9 @@ function Body({
   sex: Sex;
   color: string;
   onReady: () => void;
+  onError: () => void;
 }) {
-  const body = useBody(sex, color);
+  const body = useBody(sex, color, onError);
 
   useEffect(() => {
     if (body) onReady();
@@ -257,17 +265,24 @@ export default function BodyAvatar3D({
 
   /* 素体は800KB強あるので、読み終わるまで1秒ほど枠が空く。
      何も出さないと「壊れている」に見えるので、それまでは目印を置く。 */
-  const [ready, setReady] = useState(false);
-  const markReady = useCallback(() => setReady(true), []);
-  useEffect(() => setReady(false), [sex]);
+  const [model, setModel] = useState<{ sex: Sex; status: "loading" | "ready" | "error" }>({
+    sex,
+    status: "loading",
+  });
+  if (model.sex !== sex) setModel({ sex, status: "loading" });
+  const ready = model.status === "ready";
+  const markReady = useCallback(() => setModel({ sex, status: "ready" }), [sex]);
+  const markError = useCallback(() => setModel({ sex, status: "error" }), [sex]);
 
   return (
     <div style={{ height, width: "100%", position: "relative" }}>
       {!ready && (
         <div
+          role="status"
           style={{
             position: "absolute",
             inset: 0,
+            zIndex: 1,
             display: "grid",
             placeItems: "center",
             color: "#6b7280",
@@ -275,7 +290,7 @@ export default function BodyAvatar3D({
             pointerEvents: "none",
           }}
         >
-          体を読み込んでいます…
+          {model.status === "error" ? "3Dモデルを読み込めませんでした。" : "体を読み込んでいます…"}
         </div>
       )}
       {ready && (
@@ -300,12 +315,14 @@ export default function BodyAvatar3D({
         <directionalLight position={[-2.2, 2.0, -3.0]} intensity={1.5} color={color} />
         <directionalLight position={[2.6, 1.2, -2.8]} intensity={0.7} color="#ffcbab" />
         <Body
+          key={sex}
           fatness={fatness}
           nowFatness={nowFatness}
           showNow={showNow}
           sex={sex}
           color={color}
           onReady={markReady}
+          onError={markError}
         />
         <FloorGlow color={color} />
         <OrbitControls
