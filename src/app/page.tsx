@@ -128,7 +128,7 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-neutral-400 mt-2">{scrubStage.label}{scrubStage.belowEssential ? " ⚠️必須脂肪域" : ""}</p>
+                <p className="text-xs text-neutral-400 mt-2">{scrubStage.label}{scrub?.avatarStageRange[0].belowEssential ? " ⚠️予測範囲に必須脂肪域を下回る値があります" : ""}</p>
               </div>
 
               <p className="text-[11px] text-neutral-500 mt-3">
