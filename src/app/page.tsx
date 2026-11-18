@@ -65,7 +65,7 @@ export default function Home() {
             <h2 className="text-sm font-semibold text-neutral-300">あなたの現在地</h2>
             <div className="flex gap-2">
               {(["male", "female"] as Sex[]).map((s) => (
-                <button key={s} onClick={() => setSex(s)}
+                <button key={s} aria-pressed={sex === s} onClick={() => setSex(s)}
                   className={`flex-1 rounded-md py-1.5 text-sm ${sex === s ? "text-black" : "bg-[#2a2e30] text-neutral-300"}`}
                   style={sex === s ? { background: accent } : {}}>
                   {s === "male" ? "男性" : "女性"}
@@ -118,10 +118,19 @@ export default function Home() {
                     </span>
                   )}
                 </div>
-                <input type="range" min={0} max={365} value={scrubDay} onChange={(e) => setScrubDay(+e.target.value)} className="w-full" />
+                <input
+                  type="range"
+                  aria-label="予測する日数"
+                  aria-valuetext={scrubDay === 0 ? "現在" : `${scrubDay}日後`}
+                  min={0}
+                  max={365}
+                  value={scrubDay}
+                  onChange={(e) => setScrubDay(+e.target.value)}
+                  className="w-full"
+                />
                 <div className="flex gap-2 mt-2">
                   {[0, 30, 90, 365].map((d) => (
-                    <button key={d} onClick={() => setScrubDay(d)}
+                    <button key={d} aria-pressed={scrubDay === d} onClick={() => setScrubDay(d)}
                       className={`flex-1 rounded-md py-1 text-xs ${scrubDay === d ? "text-black" : "bg-[#2a2e30] text-neutral-300"}`}
                       style={scrubDay === d ? { background: accent } : {}}>
                       {d === 0 ? "現在" : d === 365 ? "1年後" : `${d}日後`}
