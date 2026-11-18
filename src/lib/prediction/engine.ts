@@ -93,8 +93,8 @@ export function forbesConstant(fatMassKg: number, leanMassKg: number): number {
 /** 目標総体重 W に対する脂肪量 FM を Forbes 曲線から数値解（二分法）。 */
 export function fatMassAtWeight(totalWeightKg: number, C: number): number {
   // W = FM + 10.4·ln(FM) + C を FM について解く（FM は単調増加）
-  let lo = 0.5;
-  let hi = Math.max(2, totalWeightKg); // FM は総体重を超えない
+  let lo = 0;
+  let hi = totalWeightKg; // 有効な体組成では FM は総体重を超えない
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
     const w = mid + 10.4 * Math.log(mid) + C;
@@ -176,8 +176,9 @@ export type Profile = {
   activity: ActivityLevel;
 };
 
-export type HorizonProjection = {
+export type HorizonProjection = { days: number; available: false } | {
   days: number;
+  available: true;
   /** 体重（低め〜高めのレンジ）。low=控えめ(=よりリアル), high=モデル値 */
   weightKgRange: [number, number];
   bodyFatPctRange: [number, number];
@@ -202,6 +203,12 @@ export function projectFuture(
   const bmr = bmrMifflin(profile.sex, profile.weightKg, profile.heightCm, profile.ageYr);
   const t = tdee(bmr, profile.activity);
   const delta = dailyIntakeKcal - t; // 負=赤字
+  const fatMass = profile.weightKg * (profile.bodyFatPct / 100);
+  const compositionConstant = forbesConstant(fatMass, profile.weightKg - fatMass);
+  // Forbes 曲線で除脂肪量がゼロになる総体重。これ以下では体組成を表示できない。
+  const minWeight = Math.exp(-compositionConstant / 10.4);
+  // 体脂肪率の最小点は、曲線上で除脂肪量が 10.4 kg のところにある。
+  const minPctWeight = 10.4 + Math.exp((10.4 - compositionConstant) / 10.4);
 
   const horizons = horizonsDays.map((days): HorizonProjection => {
     const modelChange = weightChangeDynamic(delta, days); // kg（負=減少）
@@ -211,15 +218,21 @@ export function projectFuture(
     // 変化量の絶対値が大きい方が「よく変わった」側
     const wA = profile.weightKg + lowChange;
     const wB = profile.weightKg + highChange;
+    if (Math.min(wA, wB) <= minWeight) return { days, available: false };
     const compA = projectComposition(profile.weightKg, profile.bodyFatPct, wA);
     const compB = projectComposition(profile.weightKg, profile.bodyFatPct, wB);
 
     // レンジは常に [小さい値, 大きい値] に整列
     const wRange: [number, number] = [Math.min(compA.weightKg, compB.weightKg), Math.max(compA.weightKg, compB.weightKg)];
-    const bfRange: [number, number] = [Math.min(compA.bodyFatPct, compB.bodyFatPct), Math.max(compA.bodyFatPct, compB.bodyFatPct)];
+    const pctEndpoints = [compA.bodyFatPct, compB.bodyFatPct];
+    const minPct = Math.min(wA, wB) <= minPctWeight && minPctWeight <= Math.max(wA, wB)
+      ? projectComposition(profile.weightKg, profile.bodyFatPct, minPctWeight).bodyFatPct
+      : Math.min(...pctEndpoints);
+    const bfRange: [number, number] = [minPct, Math.max(...pctEndpoints)];
 
     return {
       days,
+      available: true,
       weightKgRange: wRange,
       bodyFatPctRange: bfRange,
       avatarStageRange: [avatarStage(profile.sex, bfRange[0]), avatarStage(profile.sex, bfRange[1])],

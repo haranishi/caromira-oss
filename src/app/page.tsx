@@ -39,12 +39,15 @@ export default function Home() {
   const t = useMemo(() => tdee(bmrMifflin(sex, weight, height, age), activity), [sex, weight, height, age, activity]);
   const plan = useMemo(() => reverseGoal(profile, targetBf), [sex, weight, height, age, bodyFat, activity, targetBf]);
   // スクラブ中の日にちでの予測（現在=0日〜1年）
-  const scrub = useMemo(
+  const projection = useMemo(
     () => projectFuture(profile, intake, [scrubDay]).horizons[0],
     [sex, weight, height, age, bodyFat, activity, intake, scrubDay]
   );
-  const scrubMidBf = (scrub.bodyFatPctRange[0] + scrub.bodyFatPctRange[1]) / 2;
-  const scrubStage = avatarStage(sex, scrubMidBf);
+  const scrub = projection.available ? projection : null;
+  const scrubMidBf = scrub ? (scrub.bodyFatPctRange[0] + scrub.bodyFatPctRange[1]) / 2 : bodyFat;
+  const scrubStage = scrub
+    ? avatarStage(sex, scrubMidBf)
+    : { label: "", belowEssential: false };
 
   const accent = "#ad8fc6";
 
@@ -91,12 +94,16 @@ export default function Home() {
               <div className="flex items-baseline justify-between mb-1">
                 <h2 className="text-sm font-semibold text-neutral-300">このまま続けたら（未来の体型・目安）</h2>
                 <span className="text-xs text-neutral-500">
-                  {scrubDay === 0 ? "ドラッグで回せます" : "薄い輪郭が いま ／ ドラッグで回せます"}
+                  {scrub && (scrubDay === 0 ? "ドラッグで回せます" : "薄い輪郭が いま ／ ドラッグで回せます")}
                 </span>
               </div>
 
               <div className="rounded-lg bg-[#141617] overflow-hidden">
-                <BodyAvatar3D bodyFatPct={scrubMidBf} nowBodyFatPct={bodyFat} sex={sex} color={accent} height={360} />
+                {scrub ? (
+                  <BodyAvatar3D bodyFatPct={scrubMidBf} nowBodyFatPct={bodyFat} sex={sex} color={accent} height={360} />
+                ) : (
+                  <p className="p-4 text-sm text-amber-300" role="status">この条件ではモデルの計算範囲を超えるため、体型を予測できません。</p>
+                )}
               </div>
 
               {/* 時間スクラブ */}
@@ -105,9 +112,11 @@ export default function Home() {
                   <span className="font-medium" style={{ color: accent }}>
                     {scrubDay === 0 ? "現在" : `${scrubDay}日後`}
                   </span>
-                  <span className="text-neutral-300">
-                    体重 <strong>{scrub.weightKgRange[0]}〜{scrub.weightKgRange[1]}kg</strong> ／ 体脂肪率 <strong>{scrub.bodyFatPctRange[0]}〜{scrub.bodyFatPctRange[1]}%</strong>
-                  </span>
+                  {scrub && (
+                    <span className="text-neutral-300">
+                      体重 <strong>{scrub.weightKgRange[0]}〜{scrub.weightKgRange[1]}kg</strong> ／ 体脂肪率 <strong>{scrub.bodyFatPctRange[0]}〜{scrub.bodyFatPctRange[1]}%</strong>
+                    </span>
+                  )}
                 </div>
                 <input type="range" min={0} max={365} value={scrubDay} onChange={(e) => setScrubDay(+e.target.value)} className="w-full" />
                 <div className="flex gap-2 mt-2">

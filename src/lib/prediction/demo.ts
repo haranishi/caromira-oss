@@ -39,6 +39,10 @@ line();
 console.log(`【未来予測】毎日 ${intake} kcal（収支 ${intake - t} kcal/日）を続けたら`);
 const proj = projectFuture(profile, intake);
 for (const h of proj.horizons) {
+  if (!h.available) {
+    console.log(`  ${h.days}日後: モデルの計算範囲外`);
+    continue;
+  }
   const [wl, wh] = h.weightKgRange;
   const [bl, bh] = h.bodyFatPctRange;
   console.log(
