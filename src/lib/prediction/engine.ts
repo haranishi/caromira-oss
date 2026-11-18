@@ -93,8 +93,8 @@ export function forbesConstant(fatMassKg: number, leanMassKg: number): number {
 /** 目標総体重 W に対する脂肪量 FM を Forbes 曲線から数値解（二分法）。 */
 export function fatMassAtWeight(totalWeightKg: number, C: number): number {
   // W = FM + 10.4·ln(FM) + C を FM について解く（FM は単調増加）
-  let lo = 0.5;
-  let hi = Math.max(2, totalWeightKg); // FM は総体重を超えない
+  let lo = 0;
+  let hi = totalWeightKg; // 有効な体組成では FM は総体重を超えない
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
     const w = mid + 10.4 * Math.log(mid) + C;
@@ -176,8 +176,9 @@ export type Profile = {
   activity: ActivityLevel;
 };
 
-export type HorizonProjection = {
+export type HorizonProjection = { days: number; available: false } | {
   days: number;
+  available: true;
   /** 体重（低め〜高めのレンジ）。low=控えめ(=よりリアル), high=モデル値 */
   weightKgRange: [number, number];
   bodyFatPctRange: [number, number];
@@ -202,6 +203,12 @@ export function projectFuture(
   const bmr = bmrMifflin(profile.sex, profile.weightKg, profile.heightCm, profile.ageYr);
   const t = tdee(bmr, profile.activity);
   const delta = dailyIntakeKcal - t; // 負=赤字
+  const fatMass = profile.weightKg * (profile.bodyFatPct / 100);
+  const compositionConstant = forbesConstant(fatMass, profile.weightKg - fatMass);
+  // Forbes 曲線で除脂肪量がゼロになる総体重。これ以下では体組成を表示できない。
+  const minWeight = Math.exp(-compositionConstant / 10.4);
+  // 体脂肪率の最小点は、曲線上で除脂肪量が 10.4 kg のところにある。
+  const minPctWeight = 10.4 + Math.exp((10.4 - compositionConstant) / 10.4);
 
   const horizons = horizonsDays.map((days): HorizonProjection => {
     const modelChange = weightChangeDynamic(delta, days); // kg（負=減少）
@@ -211,15 +218,21 @@ export function projectFuture(
     // 変化量の絶対値が大きい方が「よく変わった」側
     const wA = profile.weightKg + lowChange;
     const wB = profile.weightKg + highChange;
+    if (Math.min(wA, wB) <= minWeight) return { days, available: false };
     const compA = projectComposition(profile.weightKg, profile.bodyFatPct, wA);
     const compB = projectComposition(profile.weightKg, profile.bodyFatPct, wB);
 
     // レンジは常に [小さい値, 大きい値] に整列
     const wRange: [number, number] = [Math.min(compA.weightKg, compB.weightKg), Math.max(compA.weightKg, compB.weightKg)];
-    const bfRange: [number, number] = [Math.min(compA.bodyFatPct, compB.bodyFatPct), Math.max(compA.bodyFatPct, compB.bodyFatPct)];
+    const pctEndpoints = [compA.bodyFatPct, compB.bodyFatPct];
+    const minPct = Math.min(wA, wB) <= minPctWeight && minPctWeight <= Math.max(wA, wB)
+      ? projectComposition(profile.weightKg, profile.bodyFatPct, minPctWeight).bodyFatPct
+      : Math.min(...pctEndpoints);
+    const bfRange: [number, number] = [minPct, Math.max(...pctEndpoints)];
 
     return {
       days,
+      available: true,
       weightKgRange: wRange,
       bodyFatPctRange: bfRange,
       avatarStageRange: [avatarStage(profile.sex, bfRange[0]), avatarStage(profile.sex, bfRange[1])],
@@ -238,8 +251,8 @@ export type GoalPlan = {
   targetWeightKg: number;
   targetBodyFatPct: number;
   changeKg: number;
-  /** 安全ペースでの推定期間（週） */
-  weeksAtSafePace: number;
+  /** 摂取目安での推定期間（週）。ペースを守れない場合は null */
+  weeksAtSafePace: number | null;
   /** そのペースに必要な1日の収支（kcal・負=赤字） */
   requiredDailyDeltaKcal: number;
   /** その収支での1日の摂取目安 */
@@ -256,18 +269,23 @@ export function reverseGoal(profile: Profile, targetBodyFatPct: number): GoalPla
   const lm0 = profile.weightKg - fm0;
   const C = forbesConstant(fm0, lm0);
   // W = FM + LM, かつ FM/W = target/100, LM = 10.4·ln(FM)+C を満たす W を解く
-  const targetWeight = solveWeightForBodyFat(targetBodyFatPct, C);
+  const targetWeight = targetBodyFatPct === profile.bodyFatPct
+    ? profile.weightKg
+    : solveWeightForBodyFat(targetBodyFatPct, C);
   const changeKg = targetWeight - profile.weightKg;
 
   // 安全ペース（体重比/週）
   const weeklyKg = profile.weightKg * SAFETY.weeklyPacePct;
-  const weeks = Math.abs(changeKg) / weeklyKg;
   // そのペースに必要な1日の収支（線形近似：処方は線形でよい）
-  const requiredDailyDelta = Math.sign(changeKg) * (weeklyKg * 7700) / 7;
+  const plannedDailyDelta = Math.sign(changeKg) * (weeklyKg * 7700) / 7;
 
   const bmr = bmrMifflin(profile.sex, profile.weightKg, profile.heightCm, profile.ageYr);
   const t = tdee(bmr, profile.activity);
-  let intake = Math.round(t + requiredDailyDelta);
+  const proposedIntake = Math.round(t + plannedDailyDelta);
+  const minIntake = SAFETY.minIntake[profile.sex];
+  const intake = Math.max(proposedIntake, minIntake);
+  const actualDailyDelta = intake - t;
+  let weeklyKgAtIntake = weeklyKg;
 
   // 安全ガード（§5-4 / §6-5）
   let isSafe = true;
@@ -280,17 +298,23 @@ export function reverseGoal(profile: Profile, targetBodyFatPct: number): GoalPla
     isSafe = false;
     warnings.push(`目標体重のBMIが${SAFETY.minBmi}未満です。過度な減量のため設定できません。`);
   }
-  if (intake < SAFETY.minIntake[profile.sex]) {
-    warnings.push(`必要摂取が下限(${SAFETY.minIntake[profile.sex]}kcal)を下回るため、下限に丸めペースを緩めます。`);
-    intake = SAFETY.minIntake[profile.sex];
+  if (proposedIntake < minIntake) {
+    if (plannedDailyDelta >= 0 || actualDailyDelta >= 0) {
+      isSafe = false;
+      weeklyKgAtIntake = 0;
+      warnings.push(`摂取下限(${minIntake}kcal)を守ると、この目標に向けたペースを保てません。`);
+    } else {
+      weeklyKgAtIntake = (-actualDailyDelta * 7) / 7700;
+      warnings.push(`必要摂取が下限(${minIntake}kcal)を下回るため、下限に合わせてペースを緩めます。`);
+    }
   }
 
   return {
     targetWeightKg: round1(targetWeight),
     targetBodyFatPct: round1(targetBodyFatPct),
     changeKg: round1(changeKg),
-    weeksAtSafePace: Math.round(weeks * 10) / 10,
-    requiredDailyDeltaKcal: Math.round(requiredDailyDelta),
+    weeksAtSafePace: weeklyKgAtIntake > 0 ? round1(Math.abs(changeKg) / weeklyKgAtIntake) : null,
+    requiredDailyDeltaKcal: actualDailyDelta,
     suggestedDailyIntakeKcal: intake,
     isSafe,
     warnings,

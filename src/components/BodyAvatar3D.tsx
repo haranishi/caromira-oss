@@ -18,7 +18,7 @@
  */
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ComponentRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { Sex } from "@/lib/prediction/engine";
@@ -64,23 +64,32 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
-type Loaded = { future: THREE.Mesh; now: THREE.Mesh };
+type Loaded = {
+  future: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhysicalMaterial>;
+  now: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+};
 
 /** GLBを読んで、同じジオメトリから「未来（実体）」と「いま（殻）」の2体を作る。 */
-function useBody(sex: Sex, color: string): Loaded | null {
+function useBody(sex: Sex, color: string, onError: () => void): Loaded | null {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
     let alive = true;
     /* drei の useGLTF はサスペンスする＝読み込み中に描画ループが止まるので、
        自前で読んで、出来上がってから差し込む。 */
+    const reportError = () => {
+      if (alive) onError();
+    };
     new GLTFLoader().load(MODEL[sex], (gltf) => {
       if (!alive) return;
       let src: THREE.Mesh | null = null;
       gltf.scene.traverse((o) => {
         if (!src && (o as THREE.Mesh).isMesh) src = o as THREE.Mesh;
       });
-      if (!src) return;
+      if (!src) {
+        reportError();
+        return;
+      }
       const geometry = (src as THREE.Mesh).geometry;
 
       const future = new THREE.Mesh(
@@ -116,16 +125,26 @@ function useBody(sex: Sex, color: string): Loaded | null {
         m.morphTargetInfluences[0] = 0;
       }
       setLoaded({ future, now });
-    });
+    }, undefined, reportError);
     return () => {
       alive = false;
     };
-  }, [sex]);
+  }, [sex, onError]);
 
   useEffect(() => {
     if (!loaded) return;
-    (loaded.now.material as THREE.MeshBasicMaterial).color.set(color);
+    loaded.now.material.color.set(color);
   }, [loaded, color]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    return () => {
+      // primitive の GPU 資源は React Three Fiber が破棄しない。形状は2体で共有する。
+      loaded.future.geometry.dispose();
+      loaded.future.material.dispose();
+      loaded.now.material.dispose();
+    };
+  }, [loaded]);
 
   return loaded;
 }
@@ -165,6 +184,7 @@ function Body({
   sex,
   color,
   onReady,
+  onError,
 }: {
   fatness: number;
   nowFatness: number;
@@ -172,8 +192,9 @@ function Body({
   sex: Sex;
   color: string;
   onReady: () => void;
+  onError: () => void;
 }) {
-  const body = useBody(sex, color);
+  const body = useBody(sex, color, onError);
 
   useEffect(() => {
     if (body) onReady();
@@ -245,20 +266,36 @@ export default function BodyAvatar3D({
      触ったあとも回り続けると、見たい角度で止められなくて邪魔になる。 */
   const [spin, setSpin] = useState(true);
   const stopSpin = useCallback(() => setSpin(false), []);
+  const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
+
+  function pauseAndRotate(radians: number) {
+    const current = controls.current;
+    if (!current) return;
+    stopSpin();
+    current.autoRotate = false;
+    current.setAzimuthalAngle(current.getAzimuthalAngle() + radians);
+  }
 
   /* 素体は800KB強あるので、読み終わるまで1秒ほど枠が空く。
      何も出さないと「壊れている」に見えるので、それまでは目印を置く。 */
-  const [ready, setReady] = useState(false);
-  const markReady = useCallback(() => setReady(true), []);
-  useEffect(() => setReady(false), [sex]);
+  const [model, setModel] = useState<{ sex: Sex; status: "loading" | "ready" | "error" }>({
+    sex,
+    status: "loading",
+  });
+  if (model.sex !== sex) setModel({ sex, status: "loading" });
+  const ready = model.status === "ready";
+  const markReady = useCallback(() => setModel({ sex, status: "ready" }), [sex]);
+  const markError = useCallback(() => setModel({ sex, status: "error" }), [sex]);
 
   return (
     <div style={{ height, width: "100%", position: "relative" }}>
       {!ready && (
         <div
+          role="status"
           style={{
             position: "absolute",
             inset: 0,
+            zIndex: 1,
             display: "grid",
             placeItems: "center",
             color: "#6b7280",
@@ -266,7 +303,20 @@ export default function BodyAvatar3D({
             pointerEvents: "none",
           }}
         >
-          体を読み込んでいます…
+          {model.status === "error" ? "3Dモデルを読み込めませんでした。" : "体を読み込んでいます…"}
+        </div>
+      )}
+      {ready && (
+        <div className="absolute bottom-2 left-2 z-10 flex flex-wrap gap-1" role="group" aria-label="3Dモデルの回転">
+          <button type="button" className="rounded bg-neutral-800 px-2 py-1 text-xs" onClick={() => pauseAndRotate(Math.PI / 6)}>
+            左に回す
+          </button>
+          <button type="button" className="rounded bg-neutral-800 px-2 py-1 text-xs" onClick={() => pauseAndRotate(-Math.PI / 6)}>
+            右に回す
+          </button>
+          <button type="button" className="rounded bg-neutral-800 px-2 py-1 text-xs" onClick={() => spin ? pauseAndRotate(0) : setSpin(true)}>
+            {spin ? "自動回転を止める" : "自動回転を始める"}
+          </button>
         </div>
       )}
       <Canvas camera={{ position: [0, 0.15, 3.0], fov: 38 }} dpr={[1, 2]}>
@@ -278,15 +328,18 @@ export default function BodyAvatar3D({
         <directionalLight position={[-2.2, 2.0, -3.0]} intensity={1.5} color={color} />
         <directionalLight position={[2.6, 1.2, -2.8]} intensity={0.7} color="#ffcbab" />
         <Body
+          key={sex}
           fatness={fatness}
           nowFatness={nowFatness}
           showNow={showNow}
           sex={sex}
           color={color}
           onReady={markReady}
+          onError={markError}
         />
         <FloorGlow color={color} />
         <OrbitControls
+          ref={controls}
           makeDefault
           enablePan={false}
           autoRotate={spin}

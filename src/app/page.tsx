@@ -8,6 +8,7 @@ import {
   projectFuture,
   reverseGoal,
   avatarStage,
+  SAFETY,
   type Sex,
   type ActivityLevel,
 } from "@/lib/prediction/engine";
@@ -39,12 +40,15 @@ export default function Home() {
   const t = useMemo(() => tdee(bmrMifflin(sex, weight, height, age), activity), [sex, weight, height, age, activity]);
   const plan = useMemo(() => reverseGoal(profile, targetBf), [sex, weight, height, age, bodyFat, activity, targetBf]);
   // スクラブ中の日にちでの予測（現在=0日〜1年）
-  const scrub = useMemo(
+  const projection = useMemo(
     () => projectFuture(profile, intake, [scrubDay]).horizons[0],
     [sex, weight, height, age, bodyFat, activity, intake, scrubDay]
   );
-  const scrubMidBf = (scrub.bodyFatPctRange[0] + scrub.bodyFatPctRange[1]) / 2;
-  const scrubStage = avatarStage(sex, scrubMidBf);
+  const scrub = projection.available ? projection : null;
+  const scrubMidBf = scrub ? (scrub.bodyFatPctRange[0] + scrub.bodyFatPctRange[1]) / 2 : bodyFat;
+  const scrubStage = scrub
+    ? avatarStage(sex, scrubMidBf)
+    : { label: "", belowEssential: false };
 
   const accent = "#ad8fc6";
 
@@ -62,7 +66,7 @@ export default function Home() {
             <h2 className="text-sm font-semibold text-neutral-300">あなたの現在地</h2>
             <div className="flex gap-2">
               {(["male", "female"] as Sex[]).map((s) => (
-                <button key={s} onClick={() => setSex(s)}
+                <button key={s} aria-pressed={sex === s} onClick={() => setSex(s)}
                   className={`flex-1 rounded-md py-1.5 text-sm ${sex === s ? "text-black" : "bg-[#2a2e30] text-neutral-300"}`}
                   style={sex === s ? { background: accent } : {}}>
                   {s === "male" ? "男性" : "女性"}
@@ -81,6 +85,9 @@ export default function Home() {
             <div className="pt-2 border-t border-white/10">
               <Field label={`1日の摂取カロリー ${intake}kcal`}><input type="range" min={1000} max={3500} step={50} value={intake} onChange={(e) => setIntake(+e.target.value)} className="w-full" /></Field>
               <p className="text-xs text-neutral-400">消費(TDEE) <strong>{t}</strong> kcal/日 ／ 収支 <strong style={{ color: intake - t < 0 ? "#7dd3fc" : "#fca5a5" }}>{intake - t > 0 ? "+" : ""}{intake - t}</strong> kcal/日</p>
+              <p className="text-xs text-amber-300" role="status">
+                {intake < SAFETY.minIntake[sex] && `⚠️ 摂取カロリーがこの試作の下限（${SAFETY.minIntake[sex]} kcal/日）を下回っています。`}
+              </p>
             </div>
           </section>
 
@@ -91,12 +98,16 @@ export default function Home() {
               <div className="flex items-baseline justify-between mb-1">
                 <h2 className="text-sm font-semibold text-neutral-300">このまま続けたら（未来の体型・目安）</h2>
                 <span className="text-xs text-neutral-500">
-                  {scrubDay === 0 ? "ドラッグで回せます" : "薄い輪郭が いま ／ ドラッグで回せます"}
+                  {scrub && (scrubDay === 0 ? "ドラッグで回せます" : "薄い輪郭が いま ／ ドラッグで回せます")}
                 </span>
               </div>
 
               <div className="rounded-lg bg-[#141617] overflow-hidden">
-                <BodyAvatar3D bodyFatPct={scrubMidBf} nowBodyFatPct={bodyFat} sex={sex} color={accent} height={360} />
+                {scrub ? (
+                  <BodyAvatar3D bodyFatPct={scrubMidBf} nowBodyFatPct={bodyFat} sex={sex} color={accent} height={360} />
+                ) : (
+                  <p className="p-4 text-sm text-amber-300" role="status">この条件ではモデルの計算範囲を超えるため、体型を予測できません。</p>
+                )}
               </div>
 
               {/* 時間スクラブ */}
@@ -105,21 +116,32 @@ export default function Home() {
                   <span className="font-medium" style={{ color: accent }}>
                     {scrubDay === 0 ? "現在" : `${scrubDay}日後`}
                   </span>
-                  <span className="text-neutral-300">
-                    体重 <strong>{scrub.weightKgRange[0]}〜{scrub.weightKgRange[1]}kg</strong> ／ 体脂肪率 <strong>{scrub.bodyFatPctRange[0]}〜{scrub.bodyFatPctRange[1]}%</strong>
-                  </span>
+                  {scrub && (
+                    <span className="text-neutral-300">
+                      体重 <strong>{scrub.weightKgRange[0]}〜{scrub.weightKgRange[1]}kg</strong> ／ 体脂肪率 <strong>{scrub.bodyFatPctRange[0]}〜{scrub.bodyFatPctRange[1]}%</strong>
+                    </span>
+                  )}
                 </div>
-                <input type="range" min={0} max={365} value={scrubDay} onChange={(e) => setScrubDay(+e.target.value)} className="w-full" />
+                <input
+                  type="range"
+                  aria-label="予測する日数"
+                  aria-valuetext={scrubDay === 0 ? "現在" : `${scrubDay}日後`}
+                  min={0}
+                  max={365}
+                  value={scrubDay}
+                  onChange={(e) => setScrubDay(+e.target.value)}
+                  className="w-full"
+                />
                 <div className="flex gap-2 mt-2">
                   {[0, 30, 90, 365].map((d) => (
-                    <button key={d} onClick={() => setScrubDay(d)}
+                    <button key={d} aria-pressed={scrubDay === d} onClick={() => setScrubDay(d)}
                       className={`flex-1 rounded-md py-1 text-xs ${scrubDay === d ? "text-black" : "bg-[#2a2e30] text-neutral-300"}`}
                       style={scrubDay === d ? { background: accent } : {}}>
                       {d === 0 ? "現在" : d === 365 ? "1年後" : `${d}日後`}
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-neutral-400 mt-2">{scrubStage.label}{scrubStage.belowEssential ? " ⚠️必須脂肪域" : ""}</p>
+                <p className="text-xs text-neutral-400 mt-2">{scrubStage.label}{scrub?.avatarStageRange[0].belowEssential ? " ⚠️予測範囲に必須脂肪域を下回る値があります" : ""}</p>
               </div>
 
               <p className="text-[11px] text-neutral-500 mt-3">
@@ -136,7 +158,7 @@ export default function Home() {
               {plan.isSafe ? (
                 <div className="mt-2 text-sm space-y-1">
                   <p>目標体重 <strong style={{ color: accent }}>{plan.targetWeightKg}kg</strong>（現在比 {plan.changeKg}kg）</p>
-                  <p>安全ペースで <strong>約{plan.weeksAtSafePace}週</strong>（週0.75%）</p>
+                  <p>安全ペースで <strong>約{plan.weeksAtSafePace}週</strong>（週0.75%が上限の目安）</p>
                   <p>摂取の目安 <strong>{plan.suggestedDailyIntakeKcal}kcal/日</strong>（収支 {plan.requiredDailyDeltaKcal}kcal/日）</p>
                   {plan.warnings.map((w, i) => <p key={i} className="text-xs text-amber-300">⚠️ {w}</p>)}
                 </div>
