@@ -18,7 +18,7 @@
  */
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ComponentRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { Sex } from "@/lib/prediction/engine";
@@ -245,6 +245,15 @@ export default function BodyAvatar3D({
      触ったあとも回り続けると、見たい角度で止められなくて邪魔になる。 */
   const [spin, setSpin] = useState(true);
   const stopSpin = useCallback(() => setSpin(false), []);
+  const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
+
+  function pauseAndRotate(radians: number) {
+    const current = controls.current;
+    if (!current) return;
+    stopSpin();
+    current.autoRotate = false;
+    current.setAzimuthalAngle(current.getAzimuthalAngle() + radians);
+  }
 
   /* 素体は800KB強あるので、読み終わるまで1秒ほど枠が空く。
      何も出さないと「壊れている」に見えるので、それまでは目印を置く。 */
@@ -269,6 +278,19 @@ export default function BodyAvatar3D({
           体を読み込んでいます…
         </div>
       )}
+      {ready && (
+        <div className="absolute bottom-2 left-2 z-10 flex flex-wrap gap-1" role="group" aria-label="3Dモデルの回転">
+          <button type="button" className="rounded bg-neutral-800 px-2 py-1 text-xs" onClick={() => pauseAndRotate(Math.PI / 6)}>
+            左に回す
+          </button>
+          <button type="button" className="rounded bg-neutral-800 px-2 py-1 text-xs" onClick={() => pauseAndRotate(-Math.PI / 6)}>
+            右に回す
+          </button>
+          <button type="button" className="rounded bg-neutral-800 px-2 py-1 text-xs" onClick={() => spin ? pauseAndRotate(0) : setSpin(true)}>
+            {spin ? "自動回転を止める" : "自動回転を始める"}
+          </button>
+        </div>
+      )}
       <Canvas camera={{ position: [0, 0.15, 3.0], fov: 38 }} dpr={[1, 2]}>
         {/* 主光源1つ＋弱い補助＋逆光。補助を上げると陰が消えて板に見える */}
         <hemisphereLight args={["#b9c6e8", "#1a1410", 0.28]} />
@@ -287,6 +309,7 @@ export default function BodyAvatar3D({
         />
         <FloorGlow color={color} />
         <OrbitControls
+          ref={controls}
           makeDefault
           enablePan={false}
           autoRotate={spin}
