@@ -8,6 +8,7 @@ import {
   projectFuture,
   reverseGoal,
   avatarStage,
+  SAFETY,
   type Sex,
   type ActivityLevel,
 } from "@/lib/prediction/engine";
@@ -84,6 +85,9 @@ export default function Home() {
             <div className="pt-2 border-t border-white/10">
               <Field label={`1日の摂取カロリー ${intake}kcal`}><input type="range" min={1000} max={3500} step={50} value={intake} onChange={(e) => setIntake(+e.target.value)} className="w-full" /></Field>
               <p className="text-xs text-neutral-400">消費(TDEE) <strong>{t}</strong> kcal/日 ／ 収支 <strong style={{ color: intake - t < 0 ? "#7dd3fc" : "#fca5a5" }}>{intake - t > 0 ? "+" : ""}{intake - t}</strong> kcal/日</p>
+              <p className="text-xs text-amber-300" role="status">
+                {intake < SAFETY.minIntake[sex] && `⚠️ 摂取カロリーがこの試作の下限（${SAFETY.minIntake[sex]} kcal/日）を下回っています。`}
+              </p>
             </div>
           </section>
 
