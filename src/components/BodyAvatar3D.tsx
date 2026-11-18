@@ -64,7 +64,10 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
-type Loaded = { future: THREE.Mesh; now: THREE.Mesh };
+type Loaded = {
+  future: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhysicalMaterial>;
+  now: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+};
 
 /** GLBを読んで、同じジオメトリから「未来（実体）」と「いま（殻）」の2体を作る。 */
 function useBody(sex: Sex, color: string, onError: () => void): Loaded | null {
@@ -130,8 +133,18 @@ function useBody(sex: Sex, color: string, onError: () => void): Loaded | null {
 
   useEffect(() => {
     if (!loaded) return;
-    (loaded.now.material as THREE.MeshBasicMaterial).color.set(color);
+    loaded.now.material.color.set(color);
   }, [loaded, color]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    return () => {
+      // primitive の GPU 資源は React Three Fiber が破棄しない。形状は2体で共有する。
+      loaded.future.geometry.dispose();
+      loaded.future.material.dispose();
+      loaded.now.material.dispose();
+    };
+  }, [loaded]);
 
   return loaded;
 }
