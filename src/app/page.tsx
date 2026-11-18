@@ -136,7 +136,7 @@ export default function Home() {
               {plan.isSafe ? (
                 <div className="mt-2 text-sm space-y-1">
                   <p>目標体重 <strong style={{ color: accent }}>{plan.targetWeightKg}kg</strong>（現在比 {plan.changeKg}kg）</p>
-                  <p>安全ペースで <strong>約{plan.weeksAtSafePace}週</strong>（週0.75%）</p>
+                  <p>安全ペースで <strong>約{plan.weeksAtSafePace}週</strong>（週0.75%が上限の目安）</p>
                   <p>摂取の目安 <strong>{plan.suggestedDailyIntakeKcal}kcal/日</strong>（収支 {plan.requiredDailyDeltaKcal}kcal/日）</p>
                   {plan.warnings.map((w, i) => <p key={i} className="text-xs text-amber-300">⚠️ {w}</p>)}
                 </div>
